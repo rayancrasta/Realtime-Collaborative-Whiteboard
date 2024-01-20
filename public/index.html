@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Real-time Whiteboard</title>
+  <style>
+    canvas {
+      border: 1px solid #000;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="whiteboard" width="800" height="600"></canvas>
+
+  <button id="lineBtn">Line</button>
+  <button id="rectangleBtn">Rectangle</button>
+  <button id="circleBtn">Circle</button>
+  <button id="freehandBtn">Freehand</button>
+  <button id="eraserBtn">Eraser</button>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+
+    const canvas = document.getElementById('whiteboard');
+    const ctx = canvas.getContext('2d');
+    let isDrawing = false;
+    let startX, startY;
+    let selectedTool = 'line'; // Default tool
+
+    socket.on('initialData', (data) => {
+      // Clear the canvas before rendering initial data
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Render 'data' on the whiteboard canvas when receiving initial drawing data
+      data.forEach((drawData) => {
+        drawOnCanvas(drawData); // Call a function to draw the received data on the canvas
+      });
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+      isDrawing = true;
+      startX = e.clientX - canvas.getBoundingClientRect().left;
+      startY = e.clientY - canvas.getBoundingClientRect().top;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (isDrawing && (selectedTool === 'freehand' || selectedTool === 'eraser')) {
+        const mouseX = e.clientX - canvas.getBoundingClientRect().left;
+        const mouseY = e.clientY - canvas.getBoundingClientRect().top;
+
+        if (selectedTool === 'freehand') {
+          socket.emit('draw', { type: 'freehand', prevX: startX, prevY: startY, x: mouseX, y: mouseY, color: 'black' });
+        } else if (selectedTool === 'eraser') {
+          socket.emit('draw', { type: 'eraser', x: mouseX, y: mouseY, size: 10 }); 
+        }
+
+        startX = mouseX;
+        startY = mouseY;
+      }
+    });
+
+    canvas.addEventListener('mouseup', (e) => {
+      if (isDrawing) {
+        const endX = e.clientX - canvas.getBoundingClientRect().left;
+        const endY = e.clientY - canvas.getBoundingClientRect().top;
+
+        // Emit drawing data to the server based on the selected tool
+        if (selectedTool === 'line') {
+          socket.emit('draw', { type: 'line', prevX: startX, prevY: startY, x: endX, y: endY, color: 'black' });
+        } else if (selectedTool === 'rectangle') {
+          const width = endX - startX;
+          const height = endY - startY;
+          socket.emit('draw', { type: 'rectangle', x: startX, y: startY, width, height, color: 'black' });
+        } else if (selectedTool === 'circle') {
+          const radius = Math.sqrt((endX - startX) ** 2 + (endY - startY) ** 2);
+          socket.emit('draw', { type: 'circle', x: startX, y: startY, radius, color: 'black' });
+        }
+
+        isDrawing = false;
+      }
+    });
+
+    // Tool selection logic
+    const lineBtn = document.getElementById('lineBtn');
+    lineBtn.addEventListener('click', () => {
+      selectedTool = 'line';
+    });
+
+    const rectangleBtn = document.getElementById('rectangleBtn');
+    rectangleBtn.addEventListener('click', () => {
+      selectedTool = 'rectangle';
+    });
+
+    const circleBtn = document.getElementById('circleBtn');
+    circleBtn.addEventListener('click', () => {
+      selectedTool = 'circle';
+    });
+
+    const freehandBtn = document.getElementById('freehandBtn');
+    freehandBtn.addEventListener('click', () => {
+      selectedTool = 'freehand';
+    });
+
+    const eraserBtn = document.getElementById('eraserBtn');
+    eraserBtn.addEventListener('click', () => {
+      selectedTool = 'eraser';
+    });
+
+    socket.on('draw', (data) => {
+      drawOnCanvas(data); // Draw the received data on the canvas
+    });
+
+    function drawOnCanvas(data) {
+      const { type, x, y, prevX, prevY, width, height, radius, color, size } = data;
+      if (type === 'line') {
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.moveTo(prevX, prevY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      } else if (type === 'rectangle') {
+        ctx.strokeStyle = color;
+        ctx.strokeRect(x, y, width, height);
+      } else if (type === 'circle') {
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.arc(x, y, radius, 0, 2 * Math.PI);
+        ctx.stroke();
+      } else if (type === 'freehand') {
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(prevX, prevY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      } else if (type === 'eraser') {
+        ctx.clearRect(x - size / 2, y - size / 2, size, size);
+      }
+    }
+  </script>
+</body>
+</html>
